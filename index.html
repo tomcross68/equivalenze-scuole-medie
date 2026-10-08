@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equivalenze - Allenati!</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: linear-gradient(135deg, #6a11cb, #2575fc);
+    min-height: 100vh; margin: 0; padding: 20px;
+    display: flex; justify-content: center; align-items: center;
+  }
+  .card {
+    background: #fff; border-radius: 20px; padding: 28px;
+    max-width: 520px; width: 100%;
+    box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  }
+  h1 { margin: 0 0 6px; text-align: center; color: #333; font-size: 1.6em; }
+  .sub { text-align: center; color: #777; margin-bottom: 18px; font-size: .95em; }
+  .cats { display: flex; gap: 8px; margin-bottom: 14px; }
+  .cats button {
+    flex: 1; padding: 10px 4px; border: 2px solid #2575fc; background: #fff;
+    color: #2575fc; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: .95em;
+  }
+  .cats button.active { background: #2575fc; color: #fff; }
+  .level { text-align: center; margin-bottom: 14px; color: #555; }
+  .level select { padding: 5px; border-radius: 8px; font-size: 1em; }
+  .score {
+    display: flex; justify-content: space-around; background: #f1f4ff;
+    border-radius: 12px; padding: 8px; margin-bottom: 18px; font-weight: bold; color: #333;
+  }
+  .question {
+    text-align: center; font-size: 1.4em; margin: 18px 0; color: #222; line-height: 1.5;
+  }
+  .question b { color: #6a11cb; }
+  .answer { display: flex; gap: 8px; justify-content: center; align-items: center; }
+  .answer input {
+    width: 150px; padding: 12px; font-size: 1.2em; border: 2px solid #ccc;
+    border-radius: 10px; text-align: center;
+  }
+  .answer input:focus { outline: none; border-color: #2575fc; }
+  .unit { font-size: 1.3em; font-weight: bold; color: #6a11cb; }
+  .btn {
+    display: block; width: 100%; margin-top: 16px; padding: 14px; font-size: 1.1em;
+    border: none; border-radius: 12px; background: #28a745; color: #fff;
+    font-weight: bold; cursor: pointer;
+  }
+  .btn.next { background: #2575fc; }
+  .btn:disabled { background: #aaa; cursor: default; }
+  .feedback {
+    margin-top: 16px; padding: 14px; border-radius: 12px; text-align: center;
+    font-size: 1.1em; font-weight: bold; display: none;
+  }
+  .ok { background: #d4edda; color: #155724; display: block; }
+  .ko { background: #f8d7da; color: #721c24; display: block; }
+  .hint {
+    margin-top: 14px; font-size: .85em; color: #666; background: #fff8e1;
+    border-radius: 10px; padding: 8px 10px; text-align: center;
+  }
+  .ladder { text-align: center; font-family: monospace; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>📏 Equivalenze</h1>
+  <div class="sub">Allenati con lunghezza, capacità e peso</div>
+
+  <div class="cats">
+    <button data-cat="lunghezza" class="active">📐 Lunghezza</button>
+    <button data-cat="capacita">🧪 Capacità</button>
+    <button data-cat="peso">⚖️ Peso</button>
+  </div>
+
+  <div class="level">
+    Livello:
+    <select id="level">
+      <option value="1">Facile (unità vicine)</option>
+      <option value="2" selected>Medio</option>
+      <option value="3">Difficile (anche decimali)</option>
+    </select>
+  </div>
+
+  <div class="score">
+    <span>✅ Giuste: <span id="right">0</span></span>
+    <span>❌ Sbagliate: <span id="wrong">0</span></span>
+    <span>🔥 Serie: <span id="streak">0</span></span>
+  </div>
+
+  <div class="question" id="question"></div>
+
+  <div class="answer">
+    <input type="text" inputmode="decimal" id="input" placeholder="?" autocomplete="off">
+    <span class="unit" id="unit"></span>
+  </div>
+
+  <button class="btn" id="check">Controlla</button>
+  <div class="feedback" id="feedback"></div>
+  <div class="hint ladder" id="hint"></div>
+</div>
+
+<script>
+// Ogni unità ha la sua potenza di 10 rispetto all'unità base
+const CATEGORIE = {
+  lunghezza: { base: "m", unita: [
+    {n:"km",e:3},{n:"hm",e:2},{n:"dam",e:1},{n:"m",e:0},{n:"dm",e:-1},{n:"cm",e:-2},{n:"mm",e:-3}] },
+  capacita: { base: "l", unita: [
+    {n:"kl",e:3},{n:"hl",e:2},{n:"dal",e:1},{n:"l",e:0},{n:"dl",e:-1},{n:"cl",e:-2},{n:"ml",e:-3}] },
+  peso: { base: "g", unita: [
+    {n:"t",e:6},{n:"q",e:5},{n:"kg",e:3},{n:"hg",e:2},{n:"dag",e:1},{n:"g",e:0},{n:"dg",e:-1},{n:"cg",e:-2},{n:"mg",e:-3}] }
+};
+
+let cat = "lunghezza", corrente = null, risolto = false;
+let giuste = 0, sbagliate = 0, serie = 0;
+
+const $ = id => document.getElementById(id);
+
+function rnd(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+
+// Evita errori di virgola mobile (es. 0.1+0.2)
+function pulisci(x) { return parseFloat(x.toPrecision(12)); }
+
+function formatta(x) {
+  return String(pulisci(x)).replace(".", ",");
+}
+
+function nuovaDomanda() {
+  const lista = CATEGORIE[cat].unita;
+  const livello = parseInt($("level").value);
+  let i, j;
+  do {
+    i = rnd(0, lista.length - 1);
+    if (livello === 1) j = i + (Math.random() < .5 ? -1 : 1);
+    else j = rnd(0, lista.length - 1);
+  } while (j < 0 || j >= lista.length || i === j);
+
+  const da = lista[i], a = lista[j];
+  let valore;
+  if (livello === 3) {
+    const dec = rnd(1, 2);
+    valore = pulisci(rnd(1, 9999) / Math.pow(10, dec));
+  } else {
+    valore = rnd(1, livello === 1 ? 50 : 500);
+  }
+  const risposta = pulisci(valore * Math.pow(10, da.e - a.e));
+  corrente = { da, a, valore, risposta };
+  risolto = false;
+
+  $("question").innerHTML = `Trasforma <b>${formatta(valore)} ${da.n}</b><br>in <b>${a.n}</b>`;
+  $("unit").textContent = a.n;
+  $("input").value = "";
+  $("input").disabled = false;
+  $("input").focus();
+  $("feedback").className = "feedback";
+  $("feedback").textContent = "";
+  $("check").textContent = "Controlla";
+  $("check").className = "btn";
+  mostraScala();
+}
+
+function mostraScala() {
+  const nomi = CATEGORIE[cat].unita.map(u => u.n);
+  $("hint").innerHTML = "💡 Scala: " + nomi.join(" › ");
+}
+
+function aggiornaPunteggio() {
+  $("right").textContent = giuste;
+  $("wrong").textContent = sbagliate;
+  $("streak").textContent = serie;
+}
+
+function controlla() {
+  if (risolto) { nuovaDomanda(); return; }
+  const testo = $("input").value.trim().replace(/\s/g, "").replace(",", ".");
+  if (testo === "" || isNaN(Number(testo))) {
+    $("feedback").className = "feedback ko";
+    $("feedback").textContent = "Scrivi un numero valido ✍️";
+    return;
+  }
+  const dato = Number(testo);
+  const fb = $("feedback");
+  if (Math.abs(dato - corrente.risposta) < 1e-9) {
+    giuste++; serie++;
+    fb.className = "feedback ok";
+    fb.textContent = "✅ Giusto! Bravo! " + formatta(corrente.valore) + " " + corrente.da.n +
+      " = " + formatta(corrente.risposta) + " " + corrente.a.n;
+  } else {
+    sbagliate++; serie = 0;
+    fb.className = "feedback ko";
+    fb.textContent = "❌ Sbagliato. La risposta corretta è " +
+      formatta(corrente.risposta) + " " + corrente.a.n;
+  }
+  risolto = true;
+  $("input").disabled = true;
+  $("check").textContent = "Prossima domanda ➜";
+  $("check").className = "btn next";
+  aggiornaPunteggio();
+}
+
+document.querySelectorAll(".cats button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll(".cats button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    cat = b.dataset.cat;
+    nuovaDomanda();
+  };
+});
+$("level").onchange = nuovaDomanda;
+$("check").onclick = controlla;
+$("input").addEventListener("keydown", e => { if (e.key === "Enter") controlla(); });
+
+nuovaDomanda();
+</script>
+</body>
+</html>
